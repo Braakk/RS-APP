@@ -48,6 +48,8 @@ def handle_client(client, address, clients):
                         other_client.send(message.encode('utf-8'))
                     except Exception as e:
                         print(f"Erreur lors de l'envoi du message: {e}")
+    except ConnectionAbortedError:
+        print(f"Connection with {address} interrupted.")
     finally:
         client.close()
         clients.remove(client)
