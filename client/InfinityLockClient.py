@@ -1,10 +1,12 @@
 import asyncio
 import socket
 import argparse
+import ssl
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
 
 reader, writer, connection_established = None, None, None
+allowInvalidCert, sslDisabled = False, False
 
 def resolvIp(address):
     try:
@@ -15,22 +17,31 @@ def resolvIp(address):
     return serveurIpResolved
 
 async def connectToServer(ip, port):
-    global reader, writer
+    global reader, writer, allowInvalidCert
     try:
-        reader, writer = await asyncio.open_connection(ip, port)
+        if not sslDisabled:
+            sslContext = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+            if allowInvalidCert:
+                sslContext.check_hostname = False
+                sslContext.verify_mode = ssl.CERT_NONE
+            reader, writer = await asyncio.open_connection(ip, port, ssl=sslContext)
+        else:
+            reader, writer = await asyncio.open_connection(ip, port)
         print("Connection established with the server.")
+    except ConnectionResetError:
+        print("The connection was terminated by the server. Make sure the server is up and SSL is enabled unless you have explicitly disabled the use of SSL.")
     except Exception as e:
         print(f"Error connecting to server: {e}")
         return None, None
     
-async def reconnect(server, port):
+async def reconnect(ip, port):
     global reader, writer, connection_established
     reader, writer = None, None
     print("Attempting to reconnect...")
     for attempt in range(5):
         await asyncio.sleep(2 * attempt)  # Exponential backoff
         print(f"Reconnection attempt {attempt + 1}")
-        await connectToServer(server, port)
+        await connectToServer(ip, port)
         if reader is not None and writer is not None:
             print("Reconnected successfully.")
             connection_established.set()
@@ -85,6 +96,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Start the InfinityLock client.")
     parser.add_argument("-s", "--server", type=str, help="The address of the server", required=False, default="localhost")
     parser.add_argument("-p", "--port", type=int, help="The listening port of the server", required=False, default=5020)
+    parser.add_argument("--disable-ssl", action="store_true", help="Disable SSL encryption", required=False, default=False)
+    parser.add_argument("--allow-invalid-cert", action="store_true", help="Allow connections with invalid certificates", required=False, default=False)
     args = parser.parse_args()
+
+    allowInvalidCert = args.allow_invalid_cert
+    sslDisabled = args.disable_ssl
+
 
     asyncio.run(main(resolvIp(args.server), args.port))

@@ -1,14 +1,18 @@
 import argparse
 import socket
+import ssl
 import threading
 import signal
+from lib import ssl_certificate_utils
 from types import FrameType
 
 clients = []
-server_socket = None
+serverSocket = None
+
+generateDefaultCert = False
 
 def sigint_handler(signum: int, frame: FrameType):
-    global clients, server_socket
+    global clients, serverSocket
 
     if len(clients) != 0:
         print("Closing clients connections...")
@@ -16,7 +20,7 @@ def sigint_handler(signum: int, frame: FrameType):
         client.close()
     
     print("Closing the server...")
-    server_socket.close()
+    serverSocket.close()
     print("Server closed succesfully.")
     exit(0)
 
@@ -27,9 +31,9 @@ def handle_client(client, address, clients):
             if not message:
                 break
             print(f"Message from {address}: {message}")
-            # Renvoyer le message à tous les autres clients
+            # Send message to all other clients
             for other_client in clients:
-                if other_client is not client:  # Ne pas renvoyer au même client
+                if other_client is not client:  # Do not resend to the same client
                     try:
                         other_client.send(message.encode('utf-8'))
                     except Exception as e:
@@ -42,25 +46,47 @@ def handle_client(client, address, clients):
         print(f"Connection with {address} closed.")
 
 def main(args):
-    global clients, server_socket
+    global clients, serverSocket
 
     # Create the server socket
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind((args.address, args.port))
-    server_socket.listen()
-    server_socket.settimeout(0.3)
+    serverSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    serverSocket.bind((args.address, args.port))
+    serverSocket.listen()
+    serverSocket.settimeout(0.3)
     print("Listening on port " + str(args.address) + ":" + str(args.port))
+
+    # Create the SSL context
+    if not args.disable_ssl:
+        sslContext = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        if (args.cert_path is not None and args.key_path is not None) or args.generate_default_cert:
+            if args.generate_default_cert:
+                args.cert_path = (args.cert_path, "certs/server.crt")[args.cert_path is None]
+                args.key_path = (args.key_path, "certs/server.key")[args.key_path is None]
+                
+                ssl_certificate_utils.generate_ssl_certificates(args.cert_path, args.key_path)
+            sslContext.load_cert_chain(certfile=args.cert_path, keyfile=args.key_path)
+        else:
+            print("You must specify the path to the SSL certificate and key files or disable SSL encryption with --disable-ssl or enable the generation of self-signed cert.")
+            exit(1)
+
+        # Wrap server socket in SSL context
+        serverSocket = sslContext.wrap_socket(serverSocket, server_side=True)
 
     # Handle the clients
     while True:
         try:
-            client, address = server_socket.accept()
+            client, address = serverSocket.accept()
             print(f"Connection from {address} accepted.")
             clients.append(client)  # Add the new client to the list
             # Create a new thread to handle the communication with this client
             thread = threading.Thread(target=handle_client, args=(client, address, clients))
             thread.start()
         except socket.timeout:
+            continue
+
+        # Handle SSL errors
+        except ssl.SSLEOFError as e:
+            print(f"Erreur SSL: {e}")
             continue
         except KeyboardInterrupt:
             break
@@ -73,6 +99,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Start the server InfinityLock.")
     parser.add_argument("-p", "--port", type=int, help="The listening port of the server", required=False, default=5020)
     parser.add_argument("-a", "--address", type=str, help="The listening address of the server", required=False, default='0.0.0.0')
+    parser.add_argument("--disable-ssl", action="store_true", help="Disable SSL encryption", required=False, default=False)
+    parser.add_argument("--cert-path", type=str, help="Path to the SSL certificate file", required=False)
+    parser.add_argument("--key-path", type=str, help="Path to the SSL private key file", required=False)
+    parser.add_argument("--generate-default-cert", action="store_true", help="Generates SSL certificates by default if they are not already present (default path: certificate=certs/server.crt, private key=certs/server.key). Use path arguments to override these default locations.", required=False, default=False)
     args = parser.parse_args()
 
     main(args)
