@@ -74,11 +74,17 @@ async def send_messages():
 
     with patch_stdout():
         while True:
-            message = await session.prompt_async("Your message: ")
-            if message:
-                await connection_established.wait() # Wait for the connection to be established/reestablished
-                writer.write(message.encode())
-                await writer.drain()
+            try:
+                message = await session.prompt_async("Your message: ")
+                if message:
+                    await connection_established.wait() # Wait for the connection to be established/reestablished
+                    writer.write(message.encode())
+                    await writer.drain()
+            except KeyboardInterrupt:
+                print("Connection closed by the user.")
+                writer.close()
+                await writer.wait_closed()
+                exit(0)
 
 async def main(ip, port):
     global reader, writer, connection_established
@@ -97,7 +103,7 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--server", type=str, help="The address of the server", required=False, default="localhost")
     parser.add_argument("-p", "--port", type=int, help="The listening port of the server", required=False, default=5020)
     parser.add_argument("--disable-ssl", action="store_true", help="Disable SSL encryption", required=False, default=False)
-    parser.add_argument("--allow-invalid-cert", action="store_true", help="Allow connections with invalid certificates", required=False, default=False)
+    parser.add_argument("--allow-invalid-cert", action="store_true", help="Allow connections with invalid certificates", required=False, default=True)
     args = parser.parse_args()
 
     allowInvalidCert = args.allow_invalid_cert
