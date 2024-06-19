@@ -3,13 +3,22 @@ import socket
 import ssl
 import threading
 import signal
+import sqlite3
+import json
+import os
 from lib import ssl_certificate_utils
 from types import FrameType
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives import serialization, hashes
 
 clients = []
 serverSocket = None
 
 generateDefaultCert = False
+
+BUFFER = 4096
 
 def sigint_handler(signum: int, frame: FrameType):
     global clients, serverSocket
@@ -24,10 +33,119 @@ def sigint_handler(signum: int, frame: FrameType):
     print("Server closed succesfully.")
     exit(0)
 
+def create_db():
+    conn = sqlite3.connect('client_data.db')
+    c = conn.cursor()
+    # Crée la table si elle n'existe pas déjà
+    c.execute('''CREATE TABLE IF NOT EXISTS clients
+                 (email TEXT PRIMARY KEY, public_key TEXT)''')
+    conn.commit()
+    conn.close()
+
+def insert_client(email, public_key):
+    conn = sqlite3.connect('client_data.db')
+    c = conn.cursor()
+    c.execute("INSERT INTO clients (email, public_key) VALUES (?, ?)", (email, public_key))
+    conn.commit()
+    conn.close()
+
+def is_client_registered(email):
+    conn = sqlite3.connect('client_data.db')
+    c = conn.cursor()
+    c.execute("SELECT * FROM clients WHERE email = ?", (email,))
+    result = c.fetchone()
+    conn.close()
+    return result is not None
+
+def get_public_key(email):
+    conn = sqlite3.connect('client_data.db')
+    c = conn.cursor()
+    c.execute("SELECT public_key FROM clients WHERE email = ?", (email,))
+    result = c.fetchone()
+    conn.close()
+    if result:
+        return result[0]
+    else:
+        return None
+    
+def RSASignature(client, address, message, clients):
+    # Check if the client is registered
+    email = message["email"]
+    if is_client_registered(email) is None:
+        client.send(json.dumps({"type": "error", "message": "The client is not registered"}).encode('utf-8'))
+        client.close()
+        clients.remove(client)
+        print(f"Connection with {address} closed.")
+        exit(1)
+    else:
+        random_value = os.urandom(32)
+        # Send the random value to the client for signature
+        client.send(json.dumps({"type": "login", "authMethod": "RSASignature", "Value" : random_value.hex()}).encode('utf-8'))
+        print({"type": "login", "authMethod": "RSASignature", "Value" : random_value.hex()})
+        message = client.recv(BUFFER).decode('utf-8')
+        if message is None:
+            print(f"Error while receiving signature from {address}")
+            exit(1)
+        message = json.loads(message)
+        print(f"Message from {address}: {message}")
+        # Check the signature
+        if message["type"] == "login" and message["authMethod"] == "RSASignature" and message["signature"] is not None:
+            signature = bytes.fromhex(message["signature"])
+            public_key = get_public_key(email).encode('utf-8')
+            public_key = serialization.load_pem_public_key(public_key, default_backend())
+            try:
+                # If the signature is valid, the client is authenticated
+                public_key.verify(signature, random_value, padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH), hashes.SHA256())
+                client.send(json.dumps({"type": "login", "authMethod": "RSASignature", "status": "success"}).encode('utf-8'))
+            except InvalidSignature:
+                # If the signature is invalid, the client is disconnected
+                client.send(json.dumps({"type": "login", "authMethod": "RSASignature", "status": "failure"}).encode('utf-8'))
+                client.close()
+                clients.remove(client)
+                print(f"Connection with {address} closed.")
+                exit(1)
+
+def registering(client, address, message, clients):
+    email = message["email"]
+    if is_client_registered(message["email"]):
+        client.send(json.dumps({"type": "error", "message": "The client is already registered"}).encode('utf-8'))
+        client.close()
+        clients.remove(client)
+        print(f"Connection with {address} closed.")
+        exit(1)
+    else:
+        client.send(json.dumps({"type": "register", "message": "generateRSAKeys"}).encode('utf-8'))
+        message = client.recv(BUFFER).decode('utf-8')
+        if message is None:
+            print(f"Error while receiving public key from {address}")
+            exit(1)
+        message = json.loads(message)
+        print(f"Message from {address}: {message}")
+        if message["type"] == "register" and message["publicKey"] is not None:
+            public_key = message["publicKey"]
+            insert_client(email, public_key)
+            client.send(json.dumps({"type": "register", "status": "success"}).encode('utf-8'))
+    
+def login(client, address, clients):
+    try:
+        message = client.recv(BUFFER).decode('utf-8')
+        message = json.loads(message)
+        print(f"Message from {address}: {message}")
+        # If the client wants to login with RSA signature (already registered)
+        if message["type"] == "login" and message["authMethod"] == "RSASignature":
+            RSASignature(client, address, message, clients)
+        # If the client is not registered
+        elif message["type"] == "register":
+            registering(client, address, message, clients)
+    except Exception as e:
+        print(f"Error while receiving login message: {e}")
+        exit(1)
+
 def handle_client(client, address, clients):
     try:
+        login(client, address, clients)
         while True:
-            message = client.recv(1024).decode('utf-8')
+            message = client.recv(BUFFER).decode('utf-8')
             if not message:
                 break
             print(f"Message from {address}: {message}")
@@ -47,6 +165,9 @@ def handle_client(client, address, clients):
 
 def main(args):
     global clients, serverSocket
+
+    # Create the database
+    create_db()
 
     # Create the server socket
     serverSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

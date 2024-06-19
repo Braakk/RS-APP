@@ -2,11 +2,14 @@ import asyncio
 import socket
 import argparse
 import ssl
+import json
+from lib import RSAKey
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
 
 reader, writer, connection_established = None, None, None
 allowInvalidCert, sslDisabled = False, False
+BUFFER = 4096
 
 def resolvIp(address):
     try:
@@ -53,7 +56,7 @@ async def listen_for_messages(ip, port):
     global reader, connection_established
     while True:
         try:
-            message = await reader.read(1024)
+            message = await reader.read(BUFFER)
             if message:
                 print(f"Message from the server: {message.decode()}")
             else:
@@ -86,11 +89,69 @@ async def send_messages():
                 await writer.wait_closed()
                 exit(0)
 
-async def main(ip, port):
+async def login(email, rsaKey):
+    global reader, writer
+    print("RSA key loaded successfully.")
+    writer.write(json.dumps({"type": "login", "authMethod": "RSASignature", "email": email}).encode())
+    await writer.drain()
+    received = await reader.read(BUFFER)
+    message = json.loads(received.decode())
+    print(f"Message from the server: {message}")
+    if message["type"] != "login" or message["authMethod"] != "RSASignature" or message["Value"] is None:
+        print("Unexpected message received. Exiting.")
+        exit(1)
+
+    # Sign the message with the RSA key and send it back to the server in hex format
+    signature = rsaKey.sign(bytes.fromhex(message["Value"]))
+    writer.write(json.dumps({"type": "login", "authMethod": "RSASignature", "signature": signature.hex()}).encode())
+    await writer.drain()
+    received = await reader.read(BUFFER)
+    message = json.loads(received.decode())
+    print(f"Message from the server: {message}")
+    if message["type"] != "login" or message["status"] != "success":
+        print("Unexpected message received. Exiting.")
+        exit(1)
+    print("Successfully logged in.")
+
+async def register(email, rsaKey):
+    global reader, writer
+    try:
+        writer.write(json.dumps({"type": "register", "email": email}).encode())
+        await writer.drain()
+
+        received = await reader.read(BUFFER)
+        message = json.loads(received.decode())
+        if message["type"] != "register" or message["message"] != "generateRSAKeys":
+            print("Unexpected message received. Exiting.")
+            exit(1)
+        rsaKey.generate_keys()
+        publicKey = rsaKey.get_public_key()
+        writer.write(json.dumps({"type": "register", "publicKey": publicKey}).encode())
+        await writer.drain()
+        received = await reader.read(BUFFER)
+        message = json.loads(received.decode())
+        if message["type"] != "register" or message["status"] != "success":
+            print("Unexpected message received. Exiting.")
+            exit(1)
+        print("Successfully registered.")
+    except ConnectionResetError:
+        print("The connection has been reset by the server. The server may have refused the message.")
+        exit(1)
+    except Exception as e:
+        print(f"Error sending registration message: {e}")
+        exit(1)
+
+async def main(ip, port, args):
     global reader, writer, connection_established
     await connectToServer(ip, port)
     connection_established = asyncio.Event()
     connection_established.set()
+
+    rsaKey = RSAKey.RSAKey()
+    if rsaKey.load_key() != False:
+        await login(args.email, rsaKey)
+    else:
+        await register(args.email, rsaKey)
 
     if reader is not None and writer is not None:
         await asyncio.gather(
@@ -102,6 +163,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Start the InfinityLock client.")
     parser.add_argument("-s", "--server", type=str, help="The address of the server", required=False, default="localhost")
     parser.add_argument("-p", "--port", type=int, help="The listening port of the server", required=False, default=5020)
+    parser.add_argument("-e", "--email", type=str, help="The email address to use for registration", required=False, default="test")
     parser.add_argument("--disable-ssl", action="store_true", help="Disable SSL encryption", required=False, default=False)
     parser.add_argument("--allow-invalid-cert", action="store_true", help="Allow connections with invalid certificates", required=False, default=True)
     args = parser.parse_args()
@@ -110,4 +172,4 @@ if __name__ == "__main__":
     sslDisabled = args.disable_ssl
 
 
-    asyncio.run(main(resolvIp(args.server), args.port))
+    asyncio.run(main(resolvIp(args.server), args.port, args))
