@@ -2,8 +2,9 @@ import sqlite3
 import json
 
 class ClientManager:
-    def __init__(self):
+    def __init__(self, debug=False):
         self.clients = []
+        self.debug = debug
 
     def add(self, clientHandler):
         self.clients.append(clientHandler)
@@ -15,6 +16,8 @@ class ClientManager:
         for client in self.clients:
             if client.email == email:
                 # Send the message to the client in json format
+                if self.debug:
+                    print(f"Sending message to {client.address}: {message}")
                 client.clientSocket.send(json.dumps({"type": "message", "From": clientHandler.email, "To": email, "message": message}).encode('utf-8'))
 
     @staticmethod
@@ -45,3 +48,23 @@ class ClientManager:
             return result[0]
         else:
             return None
+
+    @staticmethod
+    def get2FA(email):
+        conn = sqlite3.connect('client_data.db')
+        c = conn.cursor()
+        c.execute("SELECT secret_2fa FROM clients_2fa WHERE email = ?", (email,))
+        result = c.fetchone()
+        conn.close()
+        if result:
+            return result[0]
+        else:
+            return None
+    
+    @staticmethod
+    def insert2FA(email, secret_2fa):
+        conn = sqlite3.connect('client_data.db')
+        c = conn.cursor()
+        c.execute("INSERT INTO clients_2fa (email, secret_2fa) VALUES (?, ?)", (email, secret_2fa))
+        conn.commit()
+        conn.close()

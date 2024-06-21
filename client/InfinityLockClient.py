@@ -142,27 +142,48 @@ async def sendMessages():
 
 async def login(email, rsaKey):
     global reader, writer
+    login = False
     print("RSA key loaded successfully.")
-    writer.write(json.dumps({"type": "login", "authMethod": "RSASignature", "email": email}).encode())
-    await writer.drain()
-    received = await reader.read(BUFFER)
-    message = json.loads(received.decode())
-    print(f"Message from the server: {message}")
-    if message["type"] != "login" or message["authMethod"] != "RSASignature" or message["Value"] is None:
-        print("Unexpected message received. Exiting.")
+    try:
+        writer.write(json.dumps({"type": "login", "authMethod": "RSASignature", "email": email}).encode())
+        await writer.drain()
+
+        while not login:
+            received = await reader.read(BUFFER)
+            message = json.loads(received.decode())
+            print(f"Message from the server: {message}")
+
+            if message.get("type") == "login" and message.get("authMethod") == "RSASignature" and message.get("Value") is not None:
+                # Sign the message with the RSA key and send it back to the server in hex format
+                signature = rsaKey.sign(bytes.fromhex(message["Value"]))
+                writer.write(json.dumps({"type": "login", "authMethod": "RSASignature", "signature": signature.hex()}).encode())
+                await writer.drain()
+
+            elif message.get("type") == "login" and message.get("authMethod") == "TOTP" and message.get("message") == "SendTOTPToken":
+                totpToken = input("Enter the TOTP token: ")
+                writer.write(json.dumps({"type": "login", "authMethod": "TOTP", "Value": totpToken}).encode())
+                await writer.drain()
+
+            elif message.get("type") == "login" and message.get("status") == "success":
+                login = True
+
+            else:
+                print("Unexpected message received. Exiting.")
+                writer.close()
+                exit(1)
+        print("Successfully logged in.")
+    except ConnectionResetError:
+        print("The connection has been reset by the server. The server may have refused the message.")
+        writer.close()
+        exit(1)
+    except json.JSONDecodeError as e:
+        print(f"Error while decoding message: {e}")
+        writer.close()
+        exit(1)
+    except Exception as e:
+        print(f"Error sending registration message: {e}")
         exit(1)
 
-    # Sign the message with the RSA key and send it back to the server in hex format
-    signature = rsaKey.sign(bytes.fromhex(message["Value"]))
-    writer.write(json.dumps({"type": "login", "authMethod": "RSASignature", "signature": signature.hex()}).encode())
-    await writer.drain()
-    received = await reader.read(BUFFER)
-    message = json.loads(received.decode())
-    print(f"Message from the server: {message}")
-    if message["type"] != "login" or message["status"] != "success":
-        print("Unexpected message received. Exiting.")
-        exit(1)
-    print("Successfully logged in.")
 
 async def register(email, rsaKey):
     global reader, writer
@@ -170,23 +191,47 @@ async def register(email, rsaKey):
         writer.write(json.dumps({"type": "register", "email": email}).encode())
         await writer.drain()
 
-        received = await reader.read(BUFFER)
-        message = json.loads(received.decode())
-        if message["type"] != "register" or message["message"] != "generateRSAKeys":
-            print("Unexpected message received. Exiting.")
-            exit(1)
-        rsaKey.generate_keys()
-        publicKey = rsaKey.get_public_key()
-        writer.write(json.dumps({"type": "register", "publicKey": publicKey}).encode())
-        await writer.drain()
-        received = await reader.read(BUFFER)
-        message = json.loads(received.decode())
-        if message["type"] != "register" or message["status"] != "success":
-            print("Unexpected message received. Exiting.")
-            exit(1)
-        print("Successfully registered.")
+        login = False
+        while not login:
+            received = await reader.read(BUFFER)
+            message = json.loads(received.decode())
+
+            if message["type"] == "register" and message["message"] == "generateRSAKeys":
+                rsaKey.generate_keys()
+                publicKey = rsaKey.get_public_key()
+                writer.write(json.dumps({"type": "register", "publicKey": publicKey}).encode())
+                await writer.drain()
+            
+            elif message["type"] == "register" and message["message"] == "add2FAMethod":
+                add2FA = input("Do you want to add a 2FA method? (y/n): ")
+                add2FA = "yes" if add2FA.lower() == "y" or add2FA.lower() == "yes" else "no"
+                writer.write(json.dumps({"type": "register", "Value": add2FA, "authMethod": "TOTP"}).encode())
+                await writer.drain()
+
+            elif message["type"] == "register" and message["message"] == "TOTPSecret":
+                print("TOTP secret: ", message["secret"])
+
+            elif message["type"] == "register" and message["message"] == "getTOTPToken":
+                totpToken = input("Enter the TOTP token: ")
+                writer.write(json.dumps({"type": "register", "authMethod": "TOTP", "Value": totpToken}).encode())
+                await writer.drain()
+
+            elif message["type"] == "register" and message["status"] == "success":
+                login = True
+                print("Successfully registered.")
+
+            else:
+                print("Unexpected message received. Exiting.")
+                writer.close()
+                exit(1)
+
     except ConnectionResetError:
         print("The connection has been reset by the server. The server may have refused the message.")
+        writer.close()
+        exit(1)
+    except json.JSONDecodeError as e:
+        print(f"Error while decoding message: {e}")
+        writer.close()
         exit(1)
     except Exception as e:
         print(f"Error sending registration message: {e}")
@@ -226,9 +271,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Start the InfinityLock client.")
     parser.add_argument("-s", "--server", type=str, help="The address of the server", required=False, default="localhost")
     parser.add_argument("-p", "--port", type=int, help="The listening port of the server", required=False, default=5020)
-    parser.add_argument("-e", "--email", type=str, help="The email address to use for registration", required=True)
+    parser.add_argument("-e", "--email", type=str, help="The email address to use for registration", required=True, default="test2")
     parser.add_argument("--disable-ssl", action="store_true", help="Disable SSL encryption", required=False, default=False)
-    parser.add_argument("--allow-invalid-cert", action="store_true", help="Allow connections with invalid certificates", required=False, default=False)
+    parser.add_argument("--allow-invalid-cert", action="store_true", help="Allow connections with invalid certificates", required=False, default=True)
     args = parser.parse_args()
 
     allowInvalidCert = args.allow_invalid_cert

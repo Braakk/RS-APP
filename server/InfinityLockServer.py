@@ -29,9 +29,14 @@ def sigint_handler(signum: int, frame: FrameType):
 def create_db():
     conn = sqlite3.connect('client_data.db')
     c = conn.cursor()
-    # Create the table if it does not already exist
+    # Create the main table if it does not already exist
     c.execute('''CREATE TABLE IF NOT EXISTS clients
                  (email TEXT PRIMARY KEY, public_key TEXT)''')
+    # Create a second table for 2FA, linked to the customer table by a foreign key
+    c.execute('''CREATE TABLE IF NOT EXISTS clients_2fa
+                 (email TEXT PRIMARY KEY,
+                  secret_2fa TEXT,
+                  FOREIGN KEY(email) REFERENCES clients(email) ON DELETE CASCADE)''')
     conn.commit()
     conn.close()
 
@@ -65,7 +70,7 @@ def main(args):
         # Wrap server socket in SSL context
         serverSocket = sslContext.wrap_socket(serverSocket, server_side=True)
 
-    clientManager = ClientManager.ClientManager()
+    clientManager = ClientManager.ClientManager(args.debug)
 
     # Handle the clients
     while True:
@@ -74,7 +79,7 @@ def main(args):
             print(f"Connection from {address} accepted.")
             clients.append(client)  # Add the new client to the list
             # Create a new thread to handle the communication with this client
-            ClientHandler.ClientHandler(client, address, clientManager)
+            ClientHandler.ClientHandler(client, address, clientManager, args.debug)
         except socket.timeout:
             continue
 
@@ -97,6 +102,7 @@ if __name__ == "__main__":
     parser.add_argument("--cert-path", type=str, help="Path to the SSL certificate file", required=False)
     parser.add_argument("--key-path", type=str, help="Path to the SSL private key file", required=False)
     parser.add_argument("--generate-default-cert", action="store_true", help="Generates SSL certificates by default if they are not already present (default path: certificate=certs/server.crt, private key=certs/server.key). Use path arguments to override these default locations.", required=False, default=False)
+    parser.add_argument('--debug', action='store_true', help="Activate debug mode to display the exchanged messages", required=False, default=False)
     args = parser.parse_args()
 
     main(args)
