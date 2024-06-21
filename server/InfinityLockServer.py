@@ -29,7 +29,7 @@ def sigint_handler(signum: int, frame: FrameType):
 def create_db():
     conn = sqlite3.connect('client_data.db')
     c = conn.cursor()
-    # Crée la table si elle n'existe pas déjà
+    # Create the table if it does not already exist
     c.execute('''CREATE TABLE IF NOT EXISTS clients
                  (email TEXT PRIMARY KEY, public_key TEXT)''')
     conn.commit()

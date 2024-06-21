@@ -17,7 +17,7 @@ class ClientHandler(threading.Thread):
         self.clientManager: ClientManager = clientManager
         self.email = None
         self.running = True
-        self.start()  # Démarrer le thread dès l'initialisation
+        self.start()  # Start the thread upon initialization
 
     def run(self):
         self.clientManager.add(self)
