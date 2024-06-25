@@ -29,14 +29,58 @@ def sigint_handler(signum: int, frame: FrameType):
 def create_db():
     conn = sqlite3.connect('client_data.db')
     c = conn.cursor()
-    # Create the main table if it does not already exist
-    c.execute('''CREATE TABLE IF NOT EXISTS clients
-                 (email TEXT PRIMARY KEY, public_key TEXT)''')
-    # Create a second table for 2FA, linked to the customer table by a foreign key
-    c.execute('''CREATE TABLE IF NOT EXISTS clients_2fa
-                 (email TEXT PRIMARY KEY,
+
+    # Creating the Person table
+    c.execute('''CREATE TABLE IF NOT EXISTS Personne
+                 (personneId INTEGER PRIMARY KEY AUTOINCREMENT,
+                  email TEXT UNIQUE,
+                  publicKey TEXT)''')
+
+    # Creating the UserMessage table
+    c.execute('''CREATE TABLE IF NOT EXISTS UserMessage
+                 (messageId INTEGER,
+                  fromUserId INTEGER,
+                  toUserId INTEGER,
+                  message TEXT,
+                  timestamp INTEGER,
+                  FOREIGN KEY(fromUserId) REFERENCES Personne(personneId),
+                  FOREIGN KEY(toUserId) REFERENCES Personne(personneId),
+                  PRIMARY KEY (messageId, fromUserId, toUserId))''')
+
+    # Creating the Group table
+    c.execute('''CREATE TABLE IF NOT EXISTS Groupe
+                 (groupeId INTEGER PRIMARY KEY AUTOINCREMENT,
+                  synchroneKeyEncryption TEXT)''')
+
+    # Creating the GroupeMessage table
+    c.execute('''CREATE TABLE IF NOT EXISTS GroupeMessage
+                 (groupeMessageId INTEGER PRIMARY KEY AUTOINCREMENT,
+                  groupeId INTEGER,
+                  message TEXT,
+                  timestamp INTEGER,
+                  FOREIGN KEY(groupeId) REFERENCES Groupe(groupeId))''')
+
+    # Creating the AuthorizationType table
+    c.execute('''CREATE TABLE IF NOT EXISTS AuthorizationType
+                 (authorizationId INTEGER PRIMARY KEY AUTOINCREMENT,
+                  description TEXT)''')
+
+    # Creating the PersonneGroupe table
+    c.execute('''CREATE TABLE IF NOT EXISTS PersonneGroupe
+                 (personneId INTEGER,
+                  groupeId INTEGER,
+                  authorizationId INTEGER,
+                  FOREIGN KEY(personneId) REFERENCES Personne(personneId),
+                  FOREIGN KEY(groupeId) REFERENCES Groupe(groupeId),
+                  FOREIGN KEY(authorizationId) REFERENCES AuthorizationType(authorizationId),
+                  PRIMARY KEY(personneId, groupeId))''')
+
+    # Creating the Client2FA table
+    c.execute('''CREATE TABLE IF NOT EXISTS Client2FA
+                 (personneId INTEGER PRIMARY KEY,
                   secret_2fa TEXT,
-                  FOREIGN KEY(email) REFERENCES clients(email) ON DELETE CASCADE)''')
+                  FOREIGN KEY(personneId) REFERENCES Personne(personneId))''')
+
     conn.commit()
     conn.close()
 

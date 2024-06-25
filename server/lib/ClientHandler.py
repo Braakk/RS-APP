@@ -17,6 +17,7 @@ class ClientHandler(threading.Thread):
         self.address = address
         self.clientManager: ClientManager = clientManager
         self.debug = debug
+        self.personneId = None
         self.email = None
         self.running = True
         self.start()  # Start the thread upon initialization
@@ -38,7 +39,7 @@ class ClientHandler(threading.Thread):
 
     def RSASignature(self, message):
         self.email = message["email"]
-        if ClientManager.isClientRegistered(self.email) is None:
+        if not ClientManager.isClientRegistered(self.email):
             self.sendMessage({"type": "error", "message": "The client is not registered"})
             self.clientSocket.close()
             self.clientManager.remove(self)
@@ -112,9 +113,11 @@ class ClientHandler(threading.Thread):
     def login(self):
         try:
             message = self.receiveMessage()
+            print(message)
             if message["type"] == "login" and message["authMethod"] == "RSASignature":
                 self.RSASignature(message)
                 twoFA = ClientManager.get2FA(self.email)
+                print(twoFA)
                 if twoFA is not None:
                     self.verifyTOTP(message, pyotp.TOTP(twoFA))
                 self.sendMessage({"type": "login", "message": "Successfully logged in", "status": "success"})
@@ -127,6 +130,7 @@ class ClientHandler(threading.Thread):
                 self.clientManager.remove(self)
                 print(f"Connection with {self.address} closed.")
                 exit(1)
+            self.personneId = ClientManager.getPersonneIdFromEmail(self.email)
         except Exception as e:
             print(f"Error while receiving login message: {e}")
             exit(1)
@@ -136,7 +140,6 @@ class ClientHandler(threading.Thread):
             self.login()
             while True:
                 message = self.receiveMessage()
-                print(f"Message from {self.address}: {message}")
                 if not message:
                     break
                 elif message["type"] == "getPublicKey":
@@ -146,7 +149,9 @@ class ClientHandler(threading.Thread):
                     else:
                         self.sendMessage({"type": "getPublicKey", "publicKey": ClientManager.getPublicKey(message["email"])})
                 elif message["type"] == "message":
-                    self.clientManager.sendMessageToEmail(self, message["email"], message["message"])
+                    self.clientManager.sendMessageByEmail(self, message["email"], message["message"], message["messageId"])
+                elif message["type"] == "syncMessage":
+                    self.clientManager.getAllMessageSince(self, message["beginTimestamp"])
                 else:
                     self.sendMessage({"type": "error", "message": "Unknown message type"})
         except ConnectionAbortedError:

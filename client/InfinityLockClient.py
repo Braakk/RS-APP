@@ -3,6 +3,8 @@ import socket
 import argparse
 import ssl
 import json
+import sqlite3
+import time
 from lib import RSAKey
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
@@ -18,6 +20,65 @@ messageTopic = []
 condition = asyncio.Condition()
 
 BUFFER = 4096
+
+def create_client_db():
+    conn = sqlite3.connect('client_data.db')
+    c = conn.cursor()
+
+    c.execute('''CREATE TABLE IF NOT EXISTS UserMessage
+                 (messageId INTEGER,
+                  fromUserEmail TEXT,
+                  toUserEmail TEXT,
+                  message TEXT,
+                  encryptedMessage TEXT,
+                  timestamp INTEGER,
+                  PRIMARY KEY (messageId, fromUserEmail, toUserEmail))''')
+
+    conn.commit()
+    conn.close()
+
+def insertMessageDB(messageId, fromUserEmail, toUserEmail, message, encryptedMessage, timestamp):
+    conn = sqlite3.connect('client_data.db')
+    c = conn.cursor()
+
+    c.execute("INSERT INTO UserMessage (messageId, fromUserEmail, toUserEmail, message, encryptedMessage, timestamp) VALUES (?, ?, ?, ?, ?, ?)", (messageId, fromUserEmail, toUserEmail, message, encryptedMessage, timestamp))
+    conn.commit()
+    conn.close()
+
+def getLatestMessageId(fromUserEmail, toUserEmail):
+    conn = sqlite3.connect('client_data.db')
+    c = conn.cursor()
+
+    query = '''SELECT MAX(messageId) FROM UserMessage
+               WHERE fromUserEmail = ? AND toUserEmail = ?'''
+    
+    c.execute(query, (fromUserEmail, toUserEmail))
+
+    result = c.fetchone()
+    
+    conn.close()
+    
+    if result and result[0] is not None:
+        return result[0]
+    else:
+        return -1
+
+def loadLastSync(filename='last_sync.txt'):
+    try:
+        with open(filename, 'r') as file:
+            timestamp = int(file.read().strip())
+            return timestamp
+    except FileNotFoundError:
+        print(f"Le fichier {filename} n'a pas été trouvé.")
+        return None
+    except ValueError:
+        print("Le contenu du fichier n'est pas un nombre valide.")
+        return None
+
+def updateLastSync(timestamp, filename='last_sync.txt'):
+    with open(filename, 'w') as file:
+        file.write(str(timestamp))
+
 
 def resolvIp(address):
     try:
@@ -80,6 +141,9 @@ async def listenner(ip, port):
                     )
                     decryptedStr = decrypted.decode('utf-8')
 
+                    # Insert the message in the database
+                    insertMessageDB(message["messageId"], message["From"], message["To"], decryptedStr, message["message"], message["timestamp"])
+
                     print("Message from " + message["From"] + ": " + decryptedStr)
                 else:
                     print("Message received: ", message)
@@ -98,7 +162,7 @@ async def listenner(ip, port):
             print(f"Une erreur inattendue est survenue: {e}")
             break
 
-async def sendMessages():
+async def sendMessages(email):
     global writer, connectionEstablished, condition, messageTopic
     session = PromptSession()
 
@@ -130,7 +194,11 @@ async def sendMessages():
                     )
 
                     # Format to Json
-                    message = json.dumps({"type": "message", "email": emailUserToSend, "message": encrypted.hex()})
+                    messageId = getLatestMessageId(email, emailUserToSend) +1
+                    timestamp = int(time.time())
+                    message = json.dumps({"type": "message", "email": emailUserToSend, "message": encrypted.hex(), "timestamp": timestamp, "messageId": messageId})
+
+                    insertMessageDB(messageId, email, emailUserToSend, message, encrypted.hex(), timestamp)
 
                     writer.write(message.encode())
                     await writer.drain()
@@ -166,6 +234,7 @@ async def login(email, rsaKey):
 
             elif message.get("type") == "login" and message.get("status") == "success":
                 login = True
+                writer.write(json.dumps({"type": "syncMessage", "beginTimestamp": loadLastSync()}).encode())
 
             else:
                 print("Unexpected message received. Exiting.")
@@ -218,6 +287,7 @@ async def register(email, rsaKey):
 
             elif message["type"] == "register" and message["status"] == "success":
                 login = True
+                updateLastSync(int(time.time()))
                 print("Successfully registered.")
 
             else:
@@ -264,19 +334,21 @@ async def main(ip, port, args):
             await register(args.email, rsaKey)
         await asyncio.gather(
             listenner(ip, port),
-            sendMessages()
+            sendMessages(args.email)
         )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Start the InfinityLock client.")
     parser.add_argument("-s", "--server", type=str, help="The address of the server", required=False, default="localhost")
     parser.add_argument("-p", "--port", type=int, help="The listening port of the server", required=False, default=5020)
-    parser.add_argument("-e", "--email", type=str, help="The email address to use for registration", required=True, default="test2")
+    parser.add_argument("-e", "--email", type=str, help="The email address to use for registration", required=True)
     parser.add_argument("--disable-ssl", action="store_true", help="Disable SSL encryption", required=False, default=False)
-    parser.add_argument("--allow-invalid-cert", action="store_true", help="Allow connections with invalid certificates", required=False, default=True)
+    parser.add_argument("--allow-invalid-cert", action="store_true", help="Allow connections with invalid certificates", required=False, default=False)
     args = parser.parse_args()
 
     allowInvalidCert = args.allow_invalid_cert
     sslDisabled = args.disable_ssl
+
+    create_client_db()
 
     asyncio.run(main(resolvIp(args.server), args.port, args))
