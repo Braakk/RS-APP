@@ -18,13 +18,28 @@ python .\InfinityLockClient.py --email [email (ici juste un pseudo)] --allow-inv
 
 Pour obtenir des spécifications plus détaillées, vous pouvez exécuter la commande `-h` sur les deux exécutables pour découvrir rapidement les différentes configurations possibles.
 
-## Matériel(s) nécessaire(s) et configuration
+## Prérequis
 
-Dans le cadre de notre projet ou appel d'offres, il n'est pas nécessaire de brancher, configurer ou installer du matériel spécifique. Cependant, il est possible de modifier les configurations par défaut (par exemple, utiliser ses propres certificats, changer l'interface et le port d'écoute, autoriser les certificats invalides, etc.). Il suffit d'avoir une machine capable d'exécuter Python et d'installer les extensions mentionnées dans les fichiers `requirements.txt`.
+Dans le cadre de notre projet ou appel d'offres, le seul prérequis est d'avoir une machine capable d'exécuter Python version 3 et d'installer les extensions mentionnées dans les fichiers `requirements.txt`.
+
+Pour installer les librairies, vous pouvez exécuter :
 
 ```bash
-pip install -r serverRequirements.txt (ou clientRequirements.txt)
+pip install -r serverRequirements.txt # Pour le serveur
+pip install -r clientRequirements.txt # Pour le client
 ```
+
+## Matériel(s) à brancher/configurer/installer (le cas échéant)
+
+Aucune configuration matérielle nécessaire si ce n'est réseau pour s'assurer que les client aient accès au serveur.
+Sinon, il est possible de modifier le comportement du client et du serveur avec les différentes options qu'il propose comme
+
+- `--generate-default-cert` : Génère un certificat SSL par défaut si aucun n'est fourni. Utile pour les environnements de test.
+- `--cert-path` : Spécifie le chemin d'accès au certificat SSL à utiliser pour une connexion sécurisée.
+- `--key-path` : Indique le chemin d'accès à la clé privée correspondant au certificat SSL.
+- `--disable-ssl` : Désactive l'utilisation du SSL pour la connexion, rendant la communication non sécurisée. À utiliser uniquement dans des environnements de test ou de développement.
+- `--allow-invalid-cert` : Permet au client de se connecter même si le certificat du serveur n'est pas valide. Utile pour les tests avec des certificats auto-signés.
+- `--debug` : Active le mode débogage pour fournir des logs plus détaillés, facilitant ainsi le diagnostic des problèmes.
 
 ## Scripts pour créer et/ou alimenter la base de données
 
@@ -70,7 +85,7 @@ sequenceDiagram
     Client->>Utilisateur: Informe de la validation de l'enregistrement
 ```
 
-- Dans le cas contraire, celui-ci considére qu'il est enregister
+- Dans le cas contraire, celui-ci considère qu'il est enregistré
 
 ```mermaid
 sequenceDiagram
@@ -102,9 +117,15 @@ sequenceDiagram
 
 Après l'authentification réussie, le processus de synchronisation des messages commence. Le client envoie une demande au serveur pour récupérer tous les messages qu'il n'a pas encore reçus. Cette étape est cruciale pour garantir que l'utilisateur a accès à tous les messages manquants depuis sa dernière connexion. À l'avenir, il est envisagé d'améliorer ce système de synchronisation en intégrant le statut des messages, tels que "lu", "distribué" et "envoyé". Cela permettra une gestion plus fine des interactions et assurera que les utilisateurs aient une vue complète de l'état de leurs communications.
 
+## Détails sur le chiffrement des messages
+
+Chaque connexion est sécurisée par SSL/TLS, garantissant que le contenu des messages reste entièrement chiffré. Pour la communication individuelle, le chiffrement est assuré par des clés RSA. Concernant le partage de fichiers et les communications de groupe, le chiffrement AES est utilisé. Les clés AES sont sécurisées en étant chiffrées avec RSA avant d'être envoyées à chaque membre invité au groupe. Cette méthode est employée uniquement pour partager la clé AES du groupe, en encapsulant la clé dans un message chiffré avec RSA. L'objectif est d'assurer que rien ne soit accessible en clair sur le serveur, à l'exception des messages dans les salons de chat publics.
+
 ## Activation de services sur une plateforme Cloud
 
 Aucun service spécifique n'est requis pour être activé. Il est essentiel de s'assurer que le serveur soit accessible depuis l'extérieur. Côté client, il est crucial de fournir les arguments appropriés lors du lancement pour établir la connexion avec le serveur, y compris l'adresse IP et le port.
+
+## Tester rapidement le service
 
 Pour tester rapidement le service, vous pouvez lancer le serveur avec :
 
@@ -112,10 +133,12 @@ Pour tester rapidement le service, vous pouvez lancer le serveur avec :
 python .\InfinityLockServer.py --generate-default-cert
 ```
 
-Et pour lancer 1 ou plussieurs client
+Et pour lancer 1 ou plusieurs client
 
 ```bash
 python .\InfinityLockClient.py --email [email] --allow-invalid-cert
 ```
 
-Il suffit d'après de montrer les différent aspect à l'aide de l'interface.
+Il suffit après de montrer les différents aspects à l'aide de l'interface.
+
+En conclusion, notre solution répond pleinement aux exigences de l'appel d'offre, tant en matière d'authentification que d'échange de messages et de partage de fichiers. Bien que certaines fonctionnalités, telles que les communications de groupe et le partage de fichiers, nécessitent un délai d'implémentation plus long, nous sommes confiants dans notre capacité à fournir une plateforme sécurisée et efficace. Notre système d'authentification robuste, basé sur des clés RSA (et AES pour les groupes) et la possibilité d'activer le 2FA, garantit la sécurité des communications. De plus, notre approche modulaire et notre engagement envers l'amélioration continue nous permettent de répondre aux besoins évolutifs de nos clients. Nous sommes déterminés à offrir une solution qui non seulement répond aux critères actuels mais est également prête à s'adapter aux défis futurs.
