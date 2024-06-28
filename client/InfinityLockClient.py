@@ -38,18 +38,37 @@ def create_client_db():
     conn.commit()
     conn.close()
 
-def insertOrUpdateMessageDB(messageId, fromUserEmail, toUserEmail, message, encryptedMessage, timestamp):
+def insertMessageDB(messageId, fromUserEmail, toUserEmail, message, encryptedMessage):
+    conn = sqlite3.connect('client_data.db')
+    c = conn.cursor()
+
+    c.execute("""
+    INSERT INTO UserMessage (messageId, fromUserEmail, toUserEmail, message, encryptedMessage)
+    VALUES (?, ?, ?, ?, ?)
+    """, (messageId, fromUserEmail, toUserEmail, message, encryptedMessage))
+    conn.commit()
+    conn.close()
+
+def insertReceivedMessageDB(messageId, fromUserEmail, toUserEmail, message, encryptedMessage, timestamp):
     conn = sqlite3.connect('client_data.db')
     c = conn.cursor()
 
     c.execute("""
     INSERT INTO UserMessage (messageId, fromUserEmail, toUserEmail, message, encryptedMessage, timestamp)
     VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT(messageId, fromUserEmail, toUserEmail) DO UPDATE SET
-    message = excluded.message,
-    encryptedMessage = excluded.encryptedMessage,
-    timestamp = excluded.timestamp
     """, (messageId, fromUserEmail, toUserEmail, message, encryptedMessage, timestamp))
+    conn.commit()
+    conn.close()
+
+def UpdateUserMessageDB(messageId, fromUserEmail, toUserEmail, timestamp):
+    conn = sqlite3.connect('client_data.db')
+    c = conn.cursor()
+
+    c.execute("""
+    UPDATE UserMessage
+    SET timestamp = ?
+    WHERE messageId = ? AND fromUserEmail = ? AND toUserEmail = ?
+    """, (timestamp, messageId, fromUserEmail, toUserEmail))
     conn.commit()
     conn.close()
 
@@ -73,19 +92,22 @@ def getLatestMessageId(fromUserEmail, toUserEmail):
 
 def loadLastSync(filename='last_sync.txt'):
     try:
-        with open(filename, 'r') as file:
-            timestamp = int(file.read().strip())
+        with open(filename, 'a+') as file:
+            file.seek(0)  # Retour au début du fichier pour lire le contenu
+            content = file.read().strip()
+            if not content:  # Si le fichier est vide, retourne None
+                return None
+            timestamp = int(content)
             return timestamp
-    except FileNotFoundError:
-        print(f"Le fichier {filename} n'a pas été trouvé.")
-        return None
     except ValueError:
         print("Le contenu du fichier n'est pas un nombre valide.")
         return None
 
 def updateLastSync(timestamp, filename='last_sync.txt'):
-    with open(filename, 'w') as file:
-        file.write(str(timestamp))
+    # Only update the timestamp if it is greater than the current one
+    if loadLastSync(filename) is None or timestamp > loadLastSync(filename):
+        with open(filename, 'w') as file:
+            file.write(str(timestamp))
 
 async def sendMessage(message: dict):
     global debug, writer
@@ -166,26 +188,32 @@ async def reconnect():
     exit(1)
 
 async def listenner():
-    global reader, connectionEstablished, rsaKey, condition, messageTopic, args
+    global connectionEstablished, rsaKey, condition, messageTopic, args
+    await sendMessage({"type": "syncMessage", "beginTimestamp": loadLastSync()})
     while True:
         message = await receiveMessage()
         if message:
             if message["type"] == "message":
-                # Decrypt the message
-                encryptedMessage = bytes.fromhex(message["message"])
-                decrypted = rsaKey.private_key.decrypt(
-                    encryptedMessage,
-                    padding.OAEP(
-                        mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                        algorithm=hashes.SHA256(),
-                        label=None
-                    )
-                )
-                decryptedStr = decrypted.decode('utf-8')
+                if message.get("sub-type") == "user":
+                    if message["To"] == args.email:
+                        # Decrypt the message
+                        encryptedMessage = bytes.fromhex(message["message"])
+                        decrypted = rsaKey.private_key.decrypt(
+                            encryptedMessage,
+                            padding.OAEP(
+                                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                                algorithm=hashes.SHA256(),
+                                label=None
+                            )
+                        )
+                        decryptedStr = decrypted.decode('utf-8')
 
-                # Insert the message in the database
-                insertOrUpdateMessageDB(message["messageId"], message["From"], message["To"], decryptedStr, message["message"], message["timestamp"])
-                print(f"Message from {message['From']}: {decryptedStr}")
+                        # Insert the message in the database
+                        insertReceivedMessageDB(message["messageId"], message["From"], message["To"], decryptedStr, message["message"], message["timestamp"])
+                        print(f"Message from {message['From']}: {decryptedStr}")
+                    else:
+                        UpdateUserMessageDB(message["messageId"], message["From"], message["To"], message["timestamp"])
+                updateLastSync(int(message["timestamp"]))
             else:
                 async with condition:
                     messageTopic.append(message)
@@ -195,7 +223,7 @@ async def listenner():
             await connectionEstablished.wait()
 
 async def sendMessages(email):
-    global writer, connectionEstablished, condition, messageTopic
+    global connectionEstablished, condition, messageTopic
     session = PromptSession()
 
     with patch_stdout():
@@ -224,13 +252,9 @@ async def sendMessages(email):
                         )
 
                         # Format to Json
-                        messageId = getLatestMessageId(email, emailUserToSend) +1
-                        timestamp = int(time.time())
-
-                        insertOrUpdateMessageDB(messageId, email, emailUserToSend, message, encrypted.hex(), timestamp)
-
-                        message = {"type": "message", "email": emailUserToSend, "message": encrypted.hex(), "timestamp": timestamp, "messageId": messageId}
-                        await sendMessage(message)
+                        messageId = getLatestMessageId(email, emailUserToSend) + 1
+                        insertMessageDB(messageId, email, emailUserToSend, message, encrypted.hex())
+                        await sendMessage({"type": "message", "sub-type": "user", "messageId": messageId, "email": emailUserToSend, "message": encrypted.hex()})
             except KeyboardInterrupt:
                 print("Connection closed by the user.")
                 writer.close()
@@ -257,7 +281,6 @@ async def login(email, rsaKey):
 
         elif message.get("type") == "login" and message.get("status") == "success":
             login = True
-            await sendMessage({"type": "syncMessage", "beginTimestamp": loadLastSync()})
 
         else:
             print("Unexpected message received. Exiting.")

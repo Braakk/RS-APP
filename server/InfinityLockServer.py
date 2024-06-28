@@ -50,6 +50,7 @@ def create_db():
     # Creating the Group table
     c.execute('''CREATE TABLE IF NOT EXISTS Groupe
                  (groupeId INTEGER PRIMARY KEY AUTOINCREMENT,
+                  groupName TEXT,
                   synchroneKeyEncryption TEXT)''')
 
     # Creating the GroupeMessage table

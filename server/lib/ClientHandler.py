@@ -149,9 +149,14 @@ class ClientHandler(threading.Thread):
                     else:
                         self.sendMessage({"type": "getPublicKey", "publicKey": ClientManager.getPublicKey(message["email"])})
                 elif message["type"] == "message":
-                    self.clientManager.sendMessageByEmail(self, message["email"], message["message"], message["messageId"])
+                    if message["sub-type"] == "user":
+                        self.clientManager.sendMessageByEmail(self, message["email"], message["message"], message["messageId"])
+                    elif message["sub-type"] == "group":
+                        self.clientManager.sendMessageToGroup(self, message["groupId"], message["message"])
                 elif message["type"] == "syncMessage":
                     self.clientManager.getAllMessageSince(self, message["beginTimestamp"])
+                elif message["type"] == "create":
+                    self.clientManager.createGroup(message["groupName"], message["key"], self.personneId)
                 else:
                     self.sendMessage({"type": "error", "message": "Unknown message type"})
         except ConnectionAbortedError:

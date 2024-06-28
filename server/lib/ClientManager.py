@@ -1,5 +1,4 @@
 import sqlite3
-import json
 import time
 
 class ClientManager:
@@ -28,19 +27,36 @@ class ClientManager:
             clientHandler.sendMessage({"type": "error", "errorCode": 1, "message": "The client is not registered"})
             return
         messageInfo = self.addMessageToDB(clientHandler.personneId, personneId, message, messageId)
+        if "error" in messageInfo:
+            clientHandler.sendMessage({"type": "error", "errorCode": 3, "message": messageInfo["error"]})
+            return
         for client in self.clients:
             if client.personneId == personneId:
                 # Send the message to the client in json format
                 if self.debug:
                     print(f"Sending message to {client.address}: {message}")
-                client.sendMessage({"type": "message", "messageId": messageInfo["messageId"], "From": clientHandler.email, "To": email, "message": message, "timestamp": messageInfo["timestamp"]})
-        # clientHandler.sendMessage({"type": "messageStatus", "messageId": messageInfo[0], "From": clientHandler.email, "To": email, "message": message, "timestamp": messageInfo[1]})
+                client.sendMessage({"type": "message", "sub-type": "user", "messageId": messageInfo["messageId"], "From": clientHandler.email, "To": email, "message": message, "timestamp": messageInfo["timestamp"]})
+        clientHandler.sendMessage({"type": "message", "sub-type": "user", "messageId": messageInfo["messageId"], "From": clientHandler.email, "To": email, "message": message, "timestamp": messageInfo["timestamp"]})
+
+    def sendMessageToGroup(self, clientHandler, groupId, message, messageId):
+        if groupId is None:
+            clientHandler.sendMessage({"type": "error", "errorCode": 2, "message": "The group does not exist"})
+            return
+        messageInfo = self.addMessageToGroupDB(groupId, message)
+        UsersId = self.getUsersIdInGroup(groupId)
+        for client in self.clients:
+            if client.personneId in UsersId:
+                # Send the message to the client in json format
+                if self.debug:
+                    print(f"Sending message to {client.address}: {message}")
+                client.sendMessage({"type": "message", "messageId": messageId, "From": clientHandler.email, "groupId": groupId, "message": message, "timestamp": messageInfo["timestamp"]})
+
 
     @staticmethod
     def getAllMessageSince(clientHandler, beginTimestamp):
         messages = ClientManager.getUserMessagesFromDBSince(clientHandler.personneId, beginTimestamp)
         for message in messages:
-            clientHandler.sendMessage({"type": "message", "messageId": message[0],"From": ClientManager.getEmailFromPersonneId(message[1]), "To": ClientManager.getEmailFromPersonneId(message[2]), "message": message[3], "timestamp": message[4]})
+            clientHandler.sendMessage({"type": "message", "sub-type": "user", "messageId": message[0],"From": ClientManager.getEmailFromPersonneId(message[1]), "To": ClientManager.getEmailFromPersonneId(message[2]), "message": message[3], "timestamp": message[4]})
 
     @staticmethod
     def insertClient(email, public_key):
@@ -116,7 +132,28 @@ class ClientManager:
         conn.close()
 
     @staticmethod
+    def getLatestMessageId(fromUserId, toUserId):
+        conn = sqlite3.connect('client_data.db')
+        c = conn.cursor()
+
+        query = '''SELECT MAX(messageId) FROM UserMessage
+                WHERE fromUserId = ? AND toUserId = ?'''
+        
+        c.execute(query, (fromUserId, toUserId))
+
+        result = c.fetchone()
+        
+        conn.close()
+        
+        if result and result[0] is not None:
+            return result[0]
+        else:
+            return -1
+
+    @staticmethod
     def addMessageToDB(fromUserId, toUserId, message, messageId):
+        if messageId != ClientManager.getLatestMessageId(fromUserId, toUserId) + 1:
+            return {"error": "An error occured while adding the message to the database. Resyncronize the client."}
         conn = sqlite3.connect('client_data.db')
         c = conn.cursor()
         timestamp = int(time.time())
@@ -140,6 +177,37 @@ class ClientManager:
         conn = sqlite3.connect('client_data.db')
         c = conn.cursor()
         c.execute("SELECT * FROM UserMessage WHERE toUserId = ? AND timestamp > ?", (personneId, beginTimestamp))
+        result = c.fetchall()
+        conn.close()
+        return result
+    
+    @staticmethod
+    def createGroup(groupeName, synchroneKeyEncryption, personneId):
+        conn = sqlite3.connect('client_data.db')
+        c = conn.cursor()
+        c.execute("INSERT INTO Groupe (groupName, synchroneKeyEncryption) VALUES (?, ?)", (groupeName, synchroneKeyEncryption))
+        groupeId = c.lastrowid
+        c.execute("INSERT INTO PersonneGroupe (personneId, groupeId, authorizationId) VALUES (?, ?, ?)", (personneId, groupeId, 1))
+        conn.commit()
+        conn.close()
+        return groupeId
+    
+    @staticmethod
+    def addMessageToGroupDB(groupeId, message):
+        conn = sqlite3.connect('client_data.db')
+        c = conn.cursor()
+        timestamp = int(time.time())
+        c.execute("INSERT INTO GroupeMessage (groupeId, message, timestamp) VALUES (?, ?, ?)", (groupeId, message, timestamp))
+        conn.commit()
+        conn.close()
+        message_id = c.lastrowid
+        return {"messageId": message_id, "timestamp": timestamp}
+    
+    @staticmethod
+    def getUsersIdInGroup(groupeId):
+        conn = sqlite3.connect('client_data.db')
+        c = conn.cursor()
+        c.execute("SELECT personneId FROM PersonneGroupe WHERE groupeId = ?", (groupeId,))
         result = c.fetchall()
         conn.close()
         return result
