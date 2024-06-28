@@ -140,5 +140,3 @@ python .\InfinityLockClient.py --email [email] --allow-invalid-cert
 ```
 
 Il suffit après de montrer les différents aspects à l'aide de l'interface.
-
-En conclusion, notre solution répond pleinement aux exigences de l'appel d'offre, tant en matière d'authentification que d'échange de messages et de partage de fichiers. Bien que certaines fonctionnalités, telles que les communications de groupe et le partage de fichiers, nécessitent un délai d'implémentation plus long, nous sommes confiants dans notre capacité à fournir une plateforme sécurisée et efficace. Notre système d'authentification robuste, basé sur des clés RSA (et AES pour les groupes) et la possibilité d'activer le 2FA, garantit la sécurité des communications. De plus, notre approche modulaire et notre engagement envers l'amélioration continue nous permettent de répondre aux besoins évolutifs de nos clients. Nous sommes déterminés à offrir une solution qui non seulement répond aux critères actuels mais est également prête à s'adapter aux défis futurs.
