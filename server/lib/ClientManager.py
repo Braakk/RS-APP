@@ -25,7 +25,7 @@ class ClientManager:
     def sendMessageByEmail(self, clientHandler, email, message, messageId):
         personneId = self.getPersonneIdFromEmail(email)
         if personneId is None:
-            clientHandler.sendMessage({"type": "error", "message": "The client is not registered"})
+            clientHandler.sendMessage({"type": "error", "errorCode": 1, "message": "The client is not registered"})
             return
         messageInfo = self.addMessageToDB(clientHandler.personneId, personneId, message, messageId)
         for client in self.clients:
@@ -33,7 +33,7 @@ class ClientManager:
                 # Send the message to the client in json format
                 if self.debug:
                     print(f"Sending message to {client.address}: {message}")
-                client.sendMessage({"type": "message", "messageId": messageInfo[0], "From": clientHandler.email, "To": email, "message": message, "timestamp": messageInfo[1]})
+                client.sendMessage({"type": "message", "messageId": messageInfo["messageId"], "From": clientHandler.email, "To": email, "message": message, "timestamp": messageInfo["timestamp"]})
         # clientHandler.sendMessage({"type": "messageStatus", "messageId": messageInfo[0], "From": clientHandler.email, "To": email, "message": message, "timestamp": messageInfo[1]})
 
     @staticmethod
