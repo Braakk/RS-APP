@@ -62,7 +62,7 @@ Pour le moment, il suffit d'entrer un pseudonyme pour "créer son compte". À te
 
 Pour simplifier, je vous invite à consulter le diagramme de séquence :
 
-- Si le fichier contenant le jeu de clés est absent sur le client, alors celui-ci est considéré comme non enregistré.
+- Au démarrage, si la méthode de connexion est utilisée et que la clé se trouve dans les fichiers du client, nous obtenons l'échange suivant :
 
 ```mermaid
 sequenceDiagram
@@ -98,7 +98,7 @@ sequenceDiagram
     Note over Client, Serveur: Synchronisation
 ```
 
-- Dans le cas contraire, celui-ci considère qu'il est enregistré
+- Dans le cas contraire, on demande l'enregistrement d'un nouvel utilisateur, nous obtiendrons l'échange suivant :
 
 ```mermaid
 sequenceDiagram
