@@ -1,6 +1,5 @@
 import sqlite3
 import time
-import logging
 
 class ClientManager:
     _instance = None
@@ -22,19 +21,6 @@ class ClientManager:
     def remove(self, clientHandler):
         self.clients.remove(clientHandler)
 
-    def sendToAll(self, message):
-        for client in self.clients:
-            client.sendMessage(message)
-
-    def sendToAllExcept(self, message, clientHandler):
-        for client in self.clients:
-            if client != clientHandler:
-                client.sendMessage(message)
-
-    def sendToAllNewUser(self, clientHandler, personneId):
-        user = self.getUser(personneId)
-        self.sendToAllExcept({"type": "user", "email": user[1], "bio": user[2], "publicKey": user[3], "updatedAt": user[5], "createdAt": user[4]}, clientHandler)
-
     def sendMessageByEmail(self, clientHandler, email, message, messageId):
         personneId = self.getPersonneIdFromEmail(email)
         if personneId is None:
@@ -46,8 +32,11 @@ class ClientManager:
             return
         for client in self.clients:
             if client.personneId == personneId:
-                client.sendMessage({"type": "message", "sub-type": "user", "messageId": messageInfo["messageId"], "From": clientHandler.email, "To": email, "message": message, "createdAt": messageInfo["createdAt"], "updatedAt": messageInfo["updatedAt"]})
-        clientHandler.sendMessage({"type": "message", "sub-type": "user", "messageId": messageInfo["messageId"], "From": clientHandler.email, "To": email, "message": message, "createdAt": messageInfo["createdAt"], "updatedAt": messageInfo["updatedAt"]})
+                # Send the message to the client in json format
+                if self.debug:
+                    print(f"Sending message to {client.address}: {message}")
+                client.sendMessage({"type": "message", "sub-type": "user", "messageId": messageInfo["messageId"], "From": clientHandler.email, "To": email, "message": message, "timestamp": messageInfo["timestamp"]})
+        clientHandler.sendMessage({"type": "message", "sub-type": "user", "messageId": messageInfo["messageId"], "From": clientHandler.email, "To": email, "message": message, "timestamp": messageInfo["timestamp"]})
 
     def sendMessageToGroup(self, clientHandler, groupId, message, messageId):
         if groupId is None:
@@ -57,57 +46,23 @@ class ClientManager:
         UsersId = self.getUsersIdInGroup(groupId)
         for client in self.clients:
             if client.personneId in UsersId:
+                # Send the message to the client in json format
+                if self.debug:
+                    print(f"Sending message to {client.address}: {message}")
                 client.sendMessage({"type": "message", "messageId": messageId, "From": clientHandler.email, "groupId": groupId, "message": message, "timestamp": messageInfo["timestamp"]})
 
-    def getAllSince(self, clientHandler, lastUpdate):
-        self.getAllMessageSince(clientHandler, lastUpdate)
-        self.getAllUsersSince(clientHandler, lastUpdate)
-        clientHandler.sendMessage({"type": "syncFinished"})
 
-    def getAllMessageSince(self, clientHandler, lastUpdate):
-        messages = ClientManager.getUserMessagesFromDBSince(clientHandler.personneId, lastUpdate)
+    @staticmethod
+    def getAllMessageSince(clientHandler, beginTimestamp):
+        messages = ClientManager.getUserMessagesFromDBSince(clientHandler.personneId, beginTimestamp)
         for message in messages:
-            clientHandler.sendMessage({"type": "messageSync", "sub-type": "user", "messageId": message[0],"From": ClientManager.getEmailFromPersonneId(message[1]), "To": ClientManager.getEmailFromPersonneId(message[2]), "message": message[3], "updatedAt": message[5], "createdAt": message[4]})
-            message = clientHandler.receiveMessage()
-            if message["type"] != "syncReceived":
-                self.clientSocket.close()
-                self.remove(clientHandler)
-                msg = f"Connection with {self.address} closed."
-                print(msg)
-                logging.error(msg)
-                exit(1)
-
-    def getAllUsersSince(self, clientHandler, lastUpdate):
-        conn = sqlite3.connect('client_data.db')
-        c = conn.cursor()
-        c.execute("SELECT * FROM Personne WHERE updatedAt > ?", (lastUpdate,))
-        result = c.fetchall()
-        conn.close()
-        for user in result:
-            clientHandler.sendMessage({"type": "userSync", "email": user[1], "bio": user[2], "publicKey": user[3], "updatedAt": user[5], "createdAt": user[4]})
-            message = clientHandler.receiveMessage()
-            if message["type"] != "syncReceived":
-                self.clientSocket.close()
-                self.remove(clientHandler)
-                msg = f"Connection with {self.address} closed."
-                print(msg)
-                logging.error(msg)
-                exit(1)
+            clientHandler.sendMessage({"type": "message", "sub-type": "user", "messageId": message[0],"From": ClientManager.getEmailFromPersonneId(message[1]), "To": ClientManager.getEmailFromPersonneId(message[2]), "message": message[3], "timestamp": message[4]})
 
     @staticmethod
-    def getUser(personneId):
+    def insertClient(email, public_key):
         conn = sqlite3.connect('client_data.db')
         c = conn.cursor()
-        c.execute("SELECT * FROM Personne WHERE personneId = ?", (personneId,))
-        result = c.fetchone()
-        conn.close()
-        return result
-
-    @staticmethod
-    def insertClient(email, bio, public_key):
-        conn = sqlite3.connect('client_data.db')
-        c = conn.cursor()
-        c.execute("INSERT INTO Personne (email, bio, publicKey) VALUES (?, ?, ?)", (email, bio, public_key))
+        c.execute("INSERT INTO Personne (email, publicKey) VALUES (?, ?)", (email, public_key))
         conn.commit()
         conn.close()
 
@@ -143,14 +98,6 @@ class ClientManager:
         result = c.fetchone()
         conn.close()
         return result is not None
-    
-    @staticmethod
-    def updateProfile(personneId, email, bio):
-        conn = sqlite3.connect('client_data.db')
-        c = conn.cursor()
-        c.execute("UPDATE Personne SET email = ?, bio = ?, updatedAt = CURRENT_TIMESTAMP WHERE personneId = ?", (email, bio, personneId))
-        conn.commit()
-        conn.close()
     
     @staticmethod
     def getPublicKey(email):
@@ -209,17 +156,12 @@ class ClientManager:
             return {"error": "An error occured while adding the message to the database. Resyncronize the client."}
         conn = sqlite3.connect('client_data.db')
         c = conn.cursor()
-        c.execute("INSERT INTO UserMessage (messageId, fromUserId, toUserId, message) VALUES (?, ?, ?, ?)", (messageId, fromUserId, toUserId, message))
+        timestamp = int(time.time())
+        c.execute("INSERT INTO UserMessage (messageId, fromUserId, toUserId, message, timestamp) VALUES (?, ?, ?, ?, ?)", (messageId, fromUserId, toUserId, message, timestamp))
         conn.commit()
-
-        # Récupérer createdAt et updatedAt pour la ligne insérée
-        c.execute("SELECT createdAt, updatedAt FROM UserMessage WHERE messageId = ?", (messageId,))
-        row = c.fetchone()
+        message_id = c.lastrowid
         conn.close()
-        if row:
-            return {"messageId": messageId, "createdAt": row[0], "updatedAt": row[1]}
-        else:
-            return {"error": "Failed to retrieve createdAt and updatedAt."}
+        return {"messageId": message_id, "timestamp": timestamp}
 
     @staticmethod
     def getMessagesFromDB(personneId):
@@ -234,7 +176,7 @@ class ClientManager:
     def getUserMessagesFromDBSince(personneId, beginTimestamp):
         conn = sqlite3.connect('client_data.db')
         c = conn.cursor()
-        c.execute("SELECT * FROM UserMessage WHERE toUserId = ? AND updatedAt > ?", (personneId, beginTimestamp))
+        c.execute("SELECT * FROM UserMessage WHERE toUserId = ? AND timestamp > ?", (personneId, beginTimestamp))
         result = c.fetchall()
         conn.close()
         return result

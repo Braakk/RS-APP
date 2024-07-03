@@ -3,7 +3,6 @@ import socket
 import ssl
 import signal
 import sqlite3
-import logging
 from lib import ClientHandler
 from lib import ClientManager
 from lib import ssl_certificate_utils
@@ -31,70 +30,56 @@ def create_db():
     conn = sqlite3.connect('client_data.db')
     c = conn.cursor()
 
-    # Creating the Person table with createdAt and updatedAt
+    # Creating the Person table
     c.execute('''CREATE TABLE IF NOT EXISTS Personne
                  (personneId INTEGER PRIMARY KEY AUTOINCREMENT,
                   email TEXT UNIQUE,
-                  bio TEXT,
-                  publicKey TEXT,
-                  createdAt INTEGER DEFAULT (strftime('%s', 'now')),
-                  updatedAt INTEGER DEFAULT (strftime('%s', 'now')))''')
+                  publicKey TEXT)''')
 
-    # Creating the UserMessage table with createdAt and updatedAt
+    # Creating the UserMessage table
     c.execute('''CREATE TABLE IF NOT EXISTS UserMessage
                  (messageId INTEGER,
                   fromUserId INTEGER,
                   toUserId INTEGER,
                   message TEXT,
-                  createdAt INTEGER DEFAULT (strftime('%s', 'now')),
-                  updatedAt INTEGER DEFAULT (strftime('%s', 'now')),
+                  timestamp INTEGER,
                   FOREIGN KEY(fromUserId) REFERENCES Personne(personneId),
                   FOREIGN KEY(toUserId) REFERENCES Personne(personneId),
                   PRIMARY KEY (messageId, fromUserId, toUserId))''')
 
-    # Creating the Group table with createdAt and updatedAt
+    # Creating the Group table
     c.execute('''CREATE TABLE IF NOT EXISTS Groupe
                  (groupeId INTEGER PRIMARY KEY AUTOINCREMENT,
                   groupName TEXT,
-                  synchroneKeyEncryption TEXT,
-                  createdAt INTEGER DEFAULT (strftime('%s', 'now')),
-                  updatedAt INTEGER DEFAULT (strftime('%s', 'now')))''')
+                  synchroneKeyEncryption TEXT)''')
 
-    # Creating the GroupeMessage table with createdAt and updatedAt
+    # Creating the GroupeMessage table
     c.execute('''CREATE TABLE IF NOT EXISTS GroupeMessage
                  (groupeMessageId INTEGER PRIMARY KEY AUTOINCREMENT,
                   groupeId INTEGER,
                   message TEXT,
                   timestamp INTEGER,
-                  createdAt INTEGER DEFAULT (strftime('%s', 'now')),
-                  updatedAt INTEGER DEFAULT (strftime('%s', 'now')),
                   FOREIGN KEY(groupeId) REFERENCES Groupe(groupeId))''')
 
-    # Creating the AuthorizationType table with createdAt and updatedAt
+    # Creating the AuthorizationType table
     c.execute('''CREATE TABLE IF NOT EXISTS AuthorizationType
                  (authorizationId INTEGER PRIMARY KEY AUTOINCREMENT,
-                  description TEXT,
-                  createdAt INTEGER DEFAULT (strftime('%s', 'now')),
-                  updatedAt INTEGER DEFAULT (strftime('%s', 'now')))''')
+                  description TEXT)''')
 
-    # Creating the PersonneGroupe table with createdAt and updatedAt
+    # Creating the PersonneGroupe table
     c.execute('''CREATE TABLE IF NOT EXISTS PersonneGroupe
                  (personneId INTEGER,
                   groupeId INTEGER,
                   authorizationId INTEGER,
-                  createdAt INTEGER DEFAULT (strftime('%s', 'now')),
-                  updatedAt INTEGER DEFAULT (strftime('%s', 'now')),
                   FOREIGN KEY(personneId) REFERENCES Personne(personneId),
                   FOREIGN KEY(groupeId) REFERENCES Groupe(groupeId),
                   FOREIGN KEY(authorizationId) REFERENCES AuthorizationType(authorizationId),
                   PRIMARY KEY(personneId, groupeId))''')
 
-    # Creating the Client2FA table with createdAt and updatedAt
+    # Creating the Client2FA table
     c.execute('''CREATE TABLE IF NOT EXISTS Client2FA
                  (personneId INTEGER PRIMARY KEY,
                   secret_2fa TEXT,
-                  createdAt INTEGER DEFAULT (strftime('%s', 'now')),
-                  updatedAt INTEGER DEFAULT (strftime('%s', 'now')),
                   FOREIGN KEY(personneId) REFERENCES Personne(personneId))''')
 
     conn.commit()
@@ -102,8 +87,6 @@ def create_db():
 
 def main(args):
     global clients, serverSocket
-
-    logging.basicConfig(filename='InfinityLockServer.log', level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
     # Create the database
     create_db()
@@ -113,9 +96,7 @@ def main(args):
     serverSocket.bind((args.address, args.port))
     serverSocket.listen()
     serverSocket.settimeout(0.3)
-    msg = "Listening on port " + str(args.address) + ":" + str(args.port)
-    print(msg)
-    logging.info(msg)
+    print("Listening on port " + str(args.address) + ":" + str(args.port))
 
     # Create the SSL context
     if not args.disable_ssl:
@@ -128,9 +109,7 @@ def main(args):
                 ssl_certificate_utils.generate_ssl_certificates(args.cert_path, args.key_path)
             sslContext.load_cert_chain(certfile=args.cert_path, keyfile=args.key_path)
         else:
-            msg = "You must specify the path to the SSL certificate and key files or enable the generation of self-signed cert."
-            print(msg)
-            logging.error(msg)
+            print("You must specify the path to the SSL certificate and key files or disable SSL encryption with --disable-ssl or enable the generation of self-signed cert.")
             exit(1)
 
         # Wrap server socket in SSL context
@@ -142,10 +121,7 @@ def main(args):
     while True:
         try:
             client, address = serverSocket.accept()
-            msg = f"Connection from {address} accepted."
-            print(msg)
-            logging.info(msg)
-
+            print(f"Connection from {address} accepted.")
             clients.append(client)  # Add the new client to the list
             # Create a new thread to handle the communication with this client
             ClientHandler.ClientHandler(client, address, clientManager, args.debug)
@@ -154,9 +130,7 @@ def main(args):
 
         # Handle SSL errors
         except ssl.SSLEOFError as e:
-            msg = f"SSL EOF Error: {e}"
-            print(msg)
-            logging.error(msg)
+            print(f"Erreur SSL: {e}")
             continue
         except KeyboardInterrupt:
             break
