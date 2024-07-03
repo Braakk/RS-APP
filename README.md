@@ -195,5 +195,5 @@ Et normalement, vous êtes en mesure de pouvoir envoyer des messages d'un client
 ## A faire
 
 - Ajouter ou migrer vers le PGP
-- Implémenté l'envoie de fichier
-- Ajouter la création et la gestion de groupe
+- Implémenter l'envoi de fichiers
+- Ajouter la création et la gestion de groupes
