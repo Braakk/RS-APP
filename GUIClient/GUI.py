@@ -49,12 +49,10 @@ class EnhancedChatroom(tk.Tk):
 
     ## Main Window ##
 
-    # To verify
     def setup_header(self):
         header = ttk.Label(self.main_frame, text="InfinityLock", font=("Helvetica", 24, "bold"))
         header.grid(row=0, column=0, columnspan=3, pady=(0, 20))
 
-    # To verify
     def setup_user_list(self):
         user_frame = ttk.Frame(self.main_frame)
         user_frame.grid(row=1, column=0, sticky="ns", padx=(0, 20))
@@ -73,7 +71,6 @@ class EnhancedChatroom(tk.Tk):
         else:
             print("Aucun utilisateur sélectionné")
 
-    # To verify
     def setup_chat_area(self):
         chat_frame = ttk.Frame(self.main_frame)
         chat_frame.grid(row=1, column=1, sticky="nsew")
@@ -95,7 +92,6 @@ class EnhancedChatroom(tk.Tk):
         self.search_entry.pack(side="left", expand=True, fill="x")
         ttk.Button(search_frame, text="Search", command=self.search_messages).pack(side="right")
 
-    # To verify
     def create_conversation_tab(self, conv_name, users):
         tab = ttk.Frame(self.conversation_tabs)
         self.conversation_tabs.add(tab, text=conv_name)
@@ -119,7 +115,6 @@ class EnhancedChatroom(tk.Tk):
         
         self.chat_areas[conv_name] = chat_area
 
-    # To verify
     def setup_input_area(self):
         input_frame = ttk.Frame(self.main_frame)
         input_frame.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(20, 0))
@@ -136,7 +131,6 @@ class EnhancedChatroom(tk.Tk):
 
         self.message_entry.bind("<Return>", lambda event: asyncio.create_task(self.send_message()))
 
-    # To verify
     def setup_menu(self):
         menubar = tk.Menu(self)
         self.config(menu=menubar)
@@ -148,7 +142,6 @@ class EnhancedChatroom(tk.Tk):
         settings_menu.add_command(label="View Profile", command=self.view_profile)
         settings_menu.add_command(label="Logout", command=self.logout)
 
-    # To verify
     def setup_members_list(self):
         members_frame = ttk.Frame(self.main_frame)
         members_frame.grid(row=1, column=2, sticky="ns", padx=(20, 0))
@@ -158,7 +151,6 @@ class EnhancedChatroom(tk.Tk):
         self.members_listbox = tk.Listbox(members_frame, width=20, font=("Helvetica", 12))
         self.members_listbox.pack(expand=True, fill="both")
 
-    # To verify
     async def send_message(self):
         message = self.message_entry.get().strip()
         if message:
@@ -178,24 +170,7 @@ class EnhancedChatroom(tk.Tk):
 
                 self.message_entry.delete(0, tk.END)
 
-    # To verify
-    def receive_message(self, sender, conversation, message):
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        full_message = f"[{timestamp}] {sender}: {message}\n"
-    
-        self.conversations[conversation]["messages"].append(full_message)
-    
-        if conversation == self.backend.current_conversation:
-            chat_area = self.chat_areas[conversation]
-            chat_area.config(state="normal")
-            chat_area.insert(tk.END, full_message, "other")
-            chat_area.config(state="disabled")
-            chat_area.see(tk.END)
-    
-        if self.notifications_enabled:
-            self.show_discrete_notification(f"New message from {sender} in {conversation}")
-
-    # To verify
+    # To implement
     def send_file(self):
         file_path = filedialog.askopenfilename()
         if file_path:
@@ -452,7 +427,6 @@ class EnhancedChatroom(tk.Tk):
     
     ## Main Window Functions ##
 
-    # To verify
     def view_profile(self):
         if self.backend.username:
             profile_window = tk.Toplevel(self)
@@ -479,7 +453,7 @@ class EnhancedChatroom(tk.Tk):
 
             ttk.Button(profile_frame, text="Update Profile", command=lambda: self.update_profile(bio_entry.get(), email_entry.get())).grid(row=3, column=0, columnspan=2, pady=20)
 
-    # To verify
+    # To Implement
     async def update_profile(self, bio, email):
         await self.backend.sendMessage({"type": "updateProfile", "bio": bio, "email": email})
         self.backend.users[self.backend.username]["profile"]["bio"] = bio
@@ -491,7 +465,6 @@ class EnhancedChatroom(tk.Tk):
         else:
             messagebox.showerror("Profile Update Failed", "An error occurred while updating your profile.")
 
-    # To verify
     def on_user_select(self, event):
         selected_user = self.user_listbox.get(self.user_listbox.curselection())
         action = simpledialog.askstring("User Action", f"What would you like to do with {selected_user}?", 
@@ -507,7 +480,6 @@ class EnhancedChatroom(tk.Tk):
             elif "message" in action:
                 self.start_private_conversation(selected_user)
 
-    # To verify
     def view_other_profile(self, username):
         profile_window = tk.Toplevel(self)
         profile_window.title(f"Profile - {username}")
@@ -527,7 +499,6 @@ class EnhancedChatroom(tk.Tk):
         ttk.Label(profile_frame, text="Email:", font=("Helvetica", 12, "bold")).grid(row=2, column=0, sticky="w", pady=5)
         ttk.Label(profile_frame, text=self.backend.users[username]["profile"]["email"]).grid(row=2, column=1, sticky="w", pady=5)
 
-    # To verify
     def start_private_conversation(self, other_user):
         conv_name = f"{other_user}"
         if conv_name not in self.conversations:
@@ -543,7 +514,6 @@ class EnhancedChatroom(tk.Tk):
         self.conversation_tabs.select(self.conversation_tabs.index(tab_ids.index(conv_name)))
         self.update_members_list(conv_name)
 
-    # To verify
     def create_new_conversation(self):
         conversation_name = simpledialog.askstring("New Conversation", "Enter conversation name:")
         if conversation_name and conversation_name not in self.conversations:
@@ -562,13 +532,11 @@ class EnhancedChatroom(tk.Tk):
         elif conversation_name in self.conversations:
             messagebox.showwarning("Warning", "Conversation name already exists.")
 
-    # To verify
     def update_members_list(self, conversation):
         self.members_listbox.delete(0, tk.END)
         for user in self.conversations[conversation]["users"]:
             self.members_listbox.insert(tk.END, user)
 
-    # To verify
     def on_tab_change(self, event):
         selected_tab = self.conversation_tabs.select()
         self.backend.current_conversation = self.conversation_tabs.tab(selected_tab, "text")
